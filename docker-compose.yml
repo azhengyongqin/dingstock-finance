@@ -1,0 +1,42 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: dingstock-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dingstock
+      MONGO_INITDB_ROOT_PASSWORD: dingstock_password
+      MONGO_INITDB_DATABASE: dingstock_finance
+    ports:
+      - '27017:27017'
+    volumes:
+      - ./.volumes/mongodb:/data/db
+    networks:
+      - dingstock-network
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping").ok']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    container_name: dingstock-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - ./.volumes/redis:/data
+    networks:
+      - dingstock-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  dingstock-network:
+    driver: bridge

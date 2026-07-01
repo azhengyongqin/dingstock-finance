@@ -1,0 +1,18 @@
+# 应用本地默认配置；部署环境可通过环境变量覆盖。
+app:
+  port: 3000
+
+mongo:
+  uri: mongodb://dingstock:dingstock_password@localhost:27017/dingstock_finance?authSource=admin
+
+redis:
+  uri: redis://localhost:6379/0
+
+# 招商银行 CMB API 网关测试环境参数（仅示例）
+cmb:
+  baseUrl: "http://cdctest.cmburl.cn:80/cdcserver/api/v2"
+  uid: "N002466756"
+  privateKey: "NBtl7WnuUtA2v5FaebEkU0/Jj1IodLGT6lQqwkzmd2E="
+  publicKey: "BNsIe9U0x8IeSe4h/dxUzVEz9pie0hDSfMRINRXc7s1UIXfkExnYECF4QqJ2SnHxLv3z/99gsfDQrQ6dzN5lZj0="
+  symKey: "VuAzSWQhsoNqzn0K"
+  timeoutMs: 60000
