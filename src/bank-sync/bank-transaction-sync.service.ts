@@ -42,7 +42,7 @@ export class BankTransactionSyncService {
     private readonly syncStateModel: Model<BankTransactionSyncStateDocument>,
   ) {}
 
-  @Cron('0 */5 * * * *')
+  @Cron('0 */3 * * * *')
   async syncAllAccounts() {
     if (this.running) {
       this.logger.warn('上一次银行交易同步仍在执行，本轮跳过');
@@ -53,8 +53,8 @@ export class BankTransactionSyncService {
     try {
       const accounts = await this.accountService.findEnabled();
       for (const account of accounts) {
-        for (const cardNbr of account.cardNbr) {
-          await this.syncCard(account, cardNbr);
+        for (const card of account.cards ?? []) {
+          await this.syncCard(account, card.cardNbr);
         }
       }
     } finally {
@@ -145,7 +145,13 @@ export class BankTransactionSyncService {
         },
       );
 
-      const body = this.assertSuccessResponse(response);
+      const body = this.assertSuccessResponse(response, {
+        uid: account.UID,
+        cardNbr,
+        page,
+        beginDate,
+        endDate,
+      });
       const nextBreakpointY1 = this.readArray<BreakpointY1>(
         body.TRANSQUERYBYBREAKPOINT_Y1,
       );
@@ -201,14 +207,23 @@ export class BankTransactionSyncService {
     return body;
   }
 
-  private assertSuccessResponse(response: Record<string, unknown>) {
+  private assertSuccessResponse(
+    response: Record<string, unknown>,
+    context: {
+      uid: string;
+      cardNbr: string;
+      page: number;
+      beginDate: string;
+      endDate: string;
+    },
+  ) {
     const responsePayload = this.asRecord(response.response);
     const head = this.asRecord(responsePayload.head);
     const resultcode = this.optionalString(head.resultcode);
     const resultmsg = this.optionalString(head.resultmsg) ?? '';
     if (resultcode !== 'SUC0000') {
       throw new Error(
-        `CMB 返回失败 resultcode=${resultcode ?? 'UNKNOWN'} resultmsg=${resultmsg}`,
+        `CMB 查询银行流水失败 UID=${context.uid} cardNbr=${context.cardNbr} page=${context.page} beginDate=${context.beginDate} endDate=${context.endDate} resultcode=${resultcode ?? 'UNKNOWN'} resultmsg=${resultmsg || 'UNKNOWN'}`,
       );
     }
     return this.asRecord(responsePayload.body);

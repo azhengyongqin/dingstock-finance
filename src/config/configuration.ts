@@ -41,5 +41,30 @@ export default (): AppConfig => {
         process.env.CMB_TIMEOUT_MS ?? yamlConfig.cmb.timeoutMs ?? 15000,
       ),
     },
+    lark: {
+      appId: process.env.LARK_APP_ID ?? yamlConfig.lark?.appId,
+      appSecret: process.env.LARK_APP_SECRET ?? yamlConfig.lark?.appSecret,
+      baseToken:
+        process.env.LARK_BITABLE_BASE_TOKEN ??
+        yamlConfig.lark?.baseToken ??
+        'HFOwbMc0oaj2D5sHzQPcCeO7nob',
+      tableId:
+        process.env.LARK_BITABLE_TABLE_ID ??
+        yamlConfig.lark?.tableId ??
+        'tblYHrh9FhV2CO0A',
+      bitableSyncEnabled:
+        process.env.LARK_BITABLE_SYNC_ENABLED !== 'false' &&
+        (yamlConfig.lark?.bitableSyncEnabled ?? true),
+      batchSize: Number(
+        process.env.LARK_BITABLE_BATCH_SIZE ??
+          yamlConfig.lark?.batchSize ??
+          200,
+      ),
+      accountNameMaxLength: Number(
+        process.env.LARK_ACCOUNT_NAME_MAX_LENGTH ??
+          yamlConfig.lark?.accountNameMaxLength ??
+          50,
+      ),
+    },
   };
 };

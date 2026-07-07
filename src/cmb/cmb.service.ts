@@ -307,12 +307,30 @@ export class CmbApiService {
       return responseText;
     } catch (error) {
       if (error instanceof AxiosError) {
+        const status = error.response?.status ?? HttpStatus.BAD_GATEWAY;
+        const responseBody = this.formatAxiosErrorResponse(
+          error.response?.data,
+        );
         throw new HttpException(
-          `HTTP 请求失败: ${error.response?.status} ${error.message}`,
-          error.response?.status ?? HttpStatus.BAD_GATEWAY,
+          `银行API HTTP请求失败 status=${status} message=${error.message} response=${responseBody}`,
+          status,
         );
       }
       throw error;
+    }
+  }
+
+  private formatAxiosErrorResponse(data: unknown) {
+    if (data === undefined || data === null) {
+      return '';
+    }
+    if (typeof data === 'string') {
+      return data;
+    }
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(data);
     }
   }
 

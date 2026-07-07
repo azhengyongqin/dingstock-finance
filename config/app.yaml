@@ -9,10 +9,31 @@ redis:
   uri: redis://localhost:6379/0
 
 # 招商银行 CMB API 网关测试环境参数（仅示例）
+# cmb:
+#   baseUrl: "http://cdctest.cmburl.cn:80/cdcserver/api/v2"
+#   uid: "N002466756"
+#   privateKey: "NBtl7WnuUtA2v5FaebEkU0/Jj1IodLGT6lQqwkzmd2E="
+#   publicKey: "BNsIe9U0x8IeSe4h/dxUzVEz9pie0hDSfMRINRXc7s1UIXfkExnYECF4QqJ2SnHxLv3z/99gsfDQrQ6dzN5lZj0="
+#   symKey: "VuAzSWQhsoNqzn0K"
+#   timeoutMs: 60000
+
+
+# 招商银行 CMB API 网关测试环境参数（仅示例）
 cmb:
-  baseUrl: "http://cdctest.cmburl.cn:80/cdcserver/api/v2"
-  uid: "N002466756"
-  privateKey: "NBtl7WnuUtA2v5FaebEkU0/Jj1IodLGT6lQqwkzmd2E="
-  publicKey: "BNsIe9U0x8IeSe4h/dxUzVEz9pie0hDSfMRINRXc7s1UIXfkExnYECF4QqJ2SnHxLv3z/99gsfDQrQ6dzN5lZj0="
-  symKey: "VuAzSWQhsoNqzn0K"
-  timeoutMs: 60000
+  baseUrl: "https://cdc.cmbchina.com/cdcserver/api/v2"
+  uid: "U062801272"
+  privateKey: "RXGEmX3U7ZaEhif2bqHMbS2vy27Qx3Ovv4sS9WJKe6Y="
+  publicKey: "BEynMEZOjNpwZIiD9jXtZSGr3Ecpwn7r+m+wtafXHb6VIZTnugfuxhcKASq3hX+KX9JlHODDl9/RDKQv4XLOFak="
+  symKey: "31zaFy7dlijPv9fu"
+  timeoutMs: 30000
+
+lark:
+  # 自建应用 appId/appSecret 走环境变量注入，避免上传敏感信息到仓库。
+  appId: "cli_aabbb04358385cca"
+  appSecret: "It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ"
+  # 当前目标 Base 与表，先从链接中解析得到：baseToken / table_id。
+  baseToken: "HFOwbMc0oaj2D5sHzQPcCeO7nob"
+  tableId: "tblYHrh9FhV2CO0A"
+  bitableSyncEnabled: true
+  batchSize: 200
+  accountNameMaxLength: 50

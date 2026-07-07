@@ -16,4 +16,13 @@ export interface AppConfig {
     symKey: string;
     timeoutMs: number;
   };
+  lark: {
+    appId: string;
+    appSecret: string;
+    baseToken: string;
+    tableId: string;
+    bitableSyncEnabled: boolean;
+    batchSize: number;
+    accountNameMaxLength: number;
+  };
 }

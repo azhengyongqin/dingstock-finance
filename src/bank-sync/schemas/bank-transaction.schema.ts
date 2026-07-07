@@ -27,6 +27,18 @@ export class BankTransaction {
 
   @Prop({ type: MongooseSchema.Types.Mixed, required: true })
   raw: Record<string, unknown>;
+
+  @Prop()
+  syncedToBitableAt?: Date;
+
+  @Prop({ trim: true })
+  bitableRecordId?: string;
+
+  @Prop({ trim: true })
+  bitableFieldsHash?: string;
+
+  @Prop()
+  bitableCheckedAt?: Date;
 }
 
 export const BankTransactionSchema =

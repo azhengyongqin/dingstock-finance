@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CmbModule } from '../cmb/cmb.module';
 import { BankTransactionSyncService } from './bank-transaction-sync.service';
+import { BitableSyncService } from './bitable-sync.service';
 import { BankAccountController } from './bank-account.controller';
 import { BankAccountService } from './bank-account.service';
 import {
@@ -27,6 +28,10 @@ import { BankAccount, BankAccountSchema } from './schemas/bank-account.schema';
     ]),
   ],
   controllers: [BankAccountController],
-  providers: [BankAccountService, BankTransactionSyncService],
+  providers: [
+    BankAccountService,
+    BankTransactionSyncService,
+    BitableSyncService,
+  ],
 })
 export class BankSyncModule {}

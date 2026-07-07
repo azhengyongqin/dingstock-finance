@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { CreateBankAccountDto } from './dto/create-bank-account.dto';
+import {
+  BankAccountCardDto,
+  CreateBankAccountDto,
+} from './dto/create-bank-account.dto';
 import { UpdateBankAccountDto } from './dto/update-bank-account.dto';
 import {
   BankAccount,
@@ -19,7 +26,7 @@ export class BankAccountService {
     const account = new this.accountModel({
       ...dto,
       enabled: dto.enabled ?? true,
-      cardNbr: this.normalizeCardNumbers(dto.cardNbr),
+      cards: this.normalizeCards(dto.cards),
     });
     return account.save();
   }
@@ -35,9 +42,7 @@ export class BankAccountService {
   async update(id: string, dto: UpdateBankAccountDto) {
     const update = {
       ...dto,
-      ...(dto.cardNbr
-        ? { cardNbr: this.normalizeCardNumbers(dto.cardNbr) }
-        : {}),
+      ...(dto.cards ? { cards: this.normalizeCards(dto.cards) } : {}),
     };
     const account = await this.accountModel
       .findByIdAndUpdate(id, update, { returnDocument: 'after' })
@@ -56,8 +61,22 @@ export class BankAccountService {
     return { deleted: true };
   }
 
-  private normalizeCardNumbers(cardNbr: string[]) {
-    // 去空格并去重，避免同一张卡在 cron 中被重复同步。
-    return [...new Set(cardNbr.map((item) => item.trim()).filter(Boolean))];
+  private normalizeCards(cards: BankAccountCardDto[]) {
+    const normalized = cards.map((card) => ({
+      name: card.name.trim(),
+      cardNbr: card.cardNbr.trim(),
+    }));
+    if (normalized.some((card) => !card.name || !card.cardNbr)) {
+      throw new BadRequestException('银行卡名称和 cardNbr 不能为空');
+    }
+
+    const cardNumbers = normalized.map((card) => card.cardNbr);
+    const uniqueCardNumbers = new Set(cardNumbers);
+
+    if (uniqueCardNumbers.size !== cardNumbers.length) {
+      throw new BadRequestException('银行卡号 cardNbr 不能重复');
+    }
+
+    return normalized;
   }
 }
