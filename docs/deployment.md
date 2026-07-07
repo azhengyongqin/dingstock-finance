@@ -75,7 +75,25 @@ systemctl is-enabled pm2-root
 
 成功标志：`pm2 status` 中 `dingstock-finance` 状态为 `online`，日志中没有启动错误，`systemctl is-enabled pm2-root` 输出 `enabled`。
 
-## 5. 配置文件优先级
+## 5. GitHub Runner 连不上 SSH
+
+如果 GitHub Actions 报错：
+
+```text
+dial tcp 8.137.151.95:22: i/o timeout
+```
+
+说明 GitHub runner 无法连到 ECS 的 SSH 端口，还没有进入私钥认证阶段。优先检查：
+
+1. 阿里云 ECS 安全组入方向是否放行 TCP `22`
+2. 如果启用了云防火墙，是否放行 TCP `22`
+3. ECS 内部防火墙是否放行 SSH，例如 `firewalld`、`iptables`、`ufw`
+4. SSH 服务是否监听在 `22` 端口
+5. 如果安全组只放行了固定 IP，GitHub Hosted Runner 的出口 IP 是动态的，建议改为自建 runner，或放行 GitHub Actions 的出口网段
+
+成功标志：workflow 的 `Check ECS SSH connectivity` 步骤通过。
+
+## 6. 配置文件优先级
 
 PM2 默认设置 `CONFIG_FILE=config/app.production.yaml`。如果设置了 `PRODUCTION_ENV`，workflow 会在 PM2 启动前加载 `.env.production`，其中的变量可以覆盖 YAML 配置，例如：
 

@@ -38,9 +38,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Validate Prisma schema
         run: pnpm prisma:validate
@@ -58,12 +59,33 @@ jobs:
     name: Deploy to Aliyun ECS
     runs-on: ubuntu-latest
     needs: ci
+    if: always()
 
     steps:
+      - name: Send Feishu CI failure message
+        if: needs.ci.result != 'success' && env.FEISHU_BOT_WEBHOOK_URL != ''
+        uses: foxundermoon/feishu-action@v2
+        with:
+          url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
+          msg_type: text
+          content: |
+            text: |
+              Github Action Failed:
+              repository: ${{ github.repository }}
+              committer: ${{ github.actor }}
+              event: ${{ github.event_name }}
+              ref_name: ${{ github.ref_name }}
+              commit_sha: ${{ github.sha }}
+              failed_job: CI
+              ci_status: ${{ needs.ci.result }}
+              run_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
       - name: Checkout repository
+        if: needs.ci.result == 'success'
         uses: actions/checkout@v4
 
       - name: Prepare deployment config
+        if: needs.ci.result == 'success'
         env:
           APP_CONFIG_YAML: ${{ secrets.APP_CONFIG_YAML || vars.APP_CONFIG_YAML }}
           PRODUCTION_ENV: ${{ secrets.PRODUCTION_ENV }}
@@ -81,7 +103,19 @@ jobs:
             printf '%s\n' "${PRODUCTION_ENV}" > .deploy/.env.production
           fi
 
+      - name: Check ECS SSH connectivity
+        if: needs.ci.result == 'success'
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST || vars.ECS_HOST }}
+          ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT || vars.ECS_SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+
+          # 先做端口连通性检查，避免 scp-action 超时后才暴露网络问题。
+          nc -vz -w 15 "${ECS_HOST}" "${ECS_SSH_PORT}"
+
       - name: Upload project files
+        if: needs.ci.result == 'success'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.ECS_HOST || vars.ECS_HOST }}
@@ -95,6 +129,7 @@ jobs:
           strip_components: 0
 
       - name: Install, migrate, build and reload PM2
+        if: needs.ci.result == 'success'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.ECS_HOST || vars.ECS_HOST }}
@@ -129,12 +164,14 @@ jobs:
 
             corepack enable
             corepack prepare "pnpm@${{ env.PNPM_VERSION }}" --activate
+            # 固定 pnpm store 目录，ECS 后续部署可复用已下载依赖包。
+            pnpm config set store-dir "${HOME}/.pnpm-store"
 
             if ! command -v pm2 >/dev/null 2>&1; then
               npm install -g pm2
             fi
 
-            pnpm install --frozen-lockfile
+            pnpm install --frozen-lockfile --prefer-offline
 
             if [ -f .env.production ]; then
               set -a
@@ -156,7 +193,7 @@ jobs:
             fi
 
       - name: Send Feishu deployment message
-        if: success() && env.FEISHU_BOT_WEBHOOK_URL != ''
+        if: needs.ci.result == 'success' && success() && env.FEISHU_BOT_WEBHOOK_URL != ''
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
@@ -169,6 +206,26 @@ jobs:
               event: ${{ github.event_name }}
               ref_name: ${{ github.ref_name }}
               commit_sha: ${{ github.sha }}
+              run_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              deploy_path: ${{ env.APP_DIR }}
+              job status: ${{ job.status }}
+
+      - name: Send Feishu deployment failure message
+        if: failure() && env.FEISHU_BOT_WEBHOOK_URL != ''
+        uses: foxundermoon/feishu-action@v2
+        with:
+          url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
+          msg_type: text
+          content: |
+            text: |
+              Github Action Failed:
+              repository: ${{ github.repository }}
+              committer: ${{ github.actor }}
+              event: ${{ github.event_name }}
+              ref_name: ${{ github.ref_name }}
+              commit_sha: ${{ github.sha }}
+              failed_job: Deploy to Aliyun ECS
+              ci_status: ${{ needs.ci.result }}
               run_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
               deploy_path: ${{ env.APP_DIR }}
               job status: ${{ job.status }}
