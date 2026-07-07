@@ -118,7 +118,6 @@ export RUNNER_ALLOW_RUNASROOT=1
 ```bash
 node -v
 npm -v
-corepack --version
 rsync --version
 ```
 
@@ -129,6 +128,8 @@ yum install -y rsync
 ```
 
 成功标志：`node -v` 能输出 `v22.x.x` 或更高版本，`rsync --version` 能正常输出版本。
+
+部署脚本会优先使用 ECS 已安装的 pnpm；如果没有 pnpm，才会通过 `https://registry.npmmirror.com` 安装 pnpm 和 PM2，避免 ECS 访问 `registry.npmjs.org` 不稳定导致 corepack 下载失败。
 
 ## 6. 触发部署
 

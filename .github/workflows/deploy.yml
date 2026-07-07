@@ -16,6 +16,7 @@ concurrency:
 env:
   NODE_VERSION: '22'
   PNPM_VERSION: '11.7.0'
+  NPM_REGISTRY: https://registry.npmmirror.com
   APP_DIR: /root/dingstock/dingstock-finance
   FEISHU_BOT_WEBHOOK_URL: ${{ secrets.FEISHU_BOT_WEBHOOK_URL || vars.FEISHU_BOT_WEBHOOK_URL }}
 
@@ -75,6 +76,21 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ECS 自建 runner 首次执行时可能没有 rsync，部署前自动补齐。
+          if ! command -v rsync >/dev/null 2>&1; then
+            if command -v yum >/dev/null 2>&1; then
+              yum install -y rsync
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y rsync
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y rsync
+            else
+              echo "rsync is required, but no supported package manager was found." >&2
+              exit 1
+            fi
+          fi
+
           mkdir -p "${APP_DIR}" "${APP_DIR}/logs" .deploy
 
           # APP_CONFIG_YAML 用于生成 ECS 上的 config/app.production.yaml。
@@ -128,13 +144,18 @@ jobs:
             . "${HOME}/.nvm/nvm.sh"
           fi
 
-          corepack enable
-          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+          # ECS 访问 registry.npmjs.org 可能不稳定，这里使用 npm 镜像安装 pnpm，避免 corepack 下载失败。
+          npm config set registry "${NPM_REGISTRY}"
+          if ! command -v pnpm >/dev/null 2>&1; then
+            npm install -g "pnpm@${PNPM_VERSION}" --registry="${NPM_REGISTRY}"
+          fi
+
           # 固定 pnpm store 目录，ECS 后续部署可复用已下载依赖包。
           pnpm config set store-dir "${HOME}/.pnpm-store"
+          pnpm config set registry "${NPM_REGISTRY}"
 
           if ! command -v pm2 >/dev/null 2>&1; then
-            npm install -g pm2
+            npm install -g pm2 --registry="${NPM_REGISTRY}"
           fi
 
           pnpm install --frozen-lockfile --prefer-offline
