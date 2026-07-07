@@ -186,6 +186,7 @@ jobs:
           pnpm prisma:generate
           pnpm exec prisma migrate deploy
           pnpm build
+          test -f dist/src/main.js
 
           pm2 startOrReload ecosystem.config.cjs --env production --update-env
           pm2 save
