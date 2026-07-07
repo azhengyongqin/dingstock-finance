@@ -17,7 +17,7 @@ env:
   NODE_VERSION: '22'
   PNPM_VERSION: '11.7.0'
   APP_DIR: /root/dingstock/dingstock-finance
-  FEISHU_BOT_WEBHOOK_URL: ${{ secrets.FEISHU_BOT_WEBHOOK_URL }}
+  FEISHU_BOT_WEBHOOK_URL: ${{ secrets.FEISHU_BOT_WEBHOOK_URL || vars.FEISHU_BOT_WEBHOOK_URL }}
 
 jobs:
   ci:
@@ -63,9 +63,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prepare deployment config from secrets
+      - name: Prepare deployment config
         env:
-          APP_CONFIG_YAML: ${{ secrets.APP_CONFIG_YAML }}
+          APP_CONFIG_YAML: ${{ secrets.APP_CONFIG_YAML || vars.APP_CONFIG_YAML }}
           PRODUCTION_ENV: ${{ secrets.PRODUCTION_ENV }}
         run: |
           set -euo pipefail
@@ -84,10 +84,10 @@ jobs:
       - name: Upload project files
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.ECS_HOST }}
-          username: ${{ secrets.ECS_USERNAME }}
+          host: ${{ secrets.ECS_HOST || vars.ECS_HOST }}
+          username: ${{ secrets.ECS_USERNAME || vars.ECS_USERNAME }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.ECS_SSH_PORT || 22 }}
+          port: ${{ secrets.ECS_SSH_PORT || vars.ECS_SSH_PORT || 22 }}
           source: package.json,pnpm-lock.yaml,pnpm-workspace.yaml,nest-cli.json,tsconfig.json,tsconfig.build.json,prisma.config.ts,ecosystem.config.cjs,src,prisma,config,.deploy
           target: ${{ env.APP_DIR }}
           rm: false
@@ -97,10 +97,10 @@ jobs:
       - name: Install, migrate, build and reload PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.ECS_HOST }}
-          username: ${{ secrets.ECS_USERNAME }}
+          host: ${{ secrets.ECS_HOST || vars.ECS_HOST }}
+          username: ${{ secrets.ECS_USERNAME || vars.ECS_USERNAME }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.ECS_SSH_PORT || 22 }}
+          port: ${{ secrets.ECS_SSH_PORT || vars.ECS_SSH_PORT || 22 }}
           script: |
             set -euo pipefail
 
@@ -148,6 +148,12 @@ jobs:
 
             pm2 startOrReload ecosystem.config.cjs --env production --update-env
             pm2 save
+
+            # 配置 PM2 开机自启；已配置时重复执行也不会影响当前进程。
+            if command -v systemctl >/dev/null 2>&1; then
+              pm2 startup systemd -u "$(whoami)" --hp "${HOME}" || true
+              systemctl enable "pm2-$(whoami)" || true
+            fi
 
       - name: Send Feishu deployment message
         if: success() && env.FEISHU_BOT_WEBHOOK_URL != ''

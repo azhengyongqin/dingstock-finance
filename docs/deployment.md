@@ -1,17 +1,33 @@
 # GitHub Actions + PM2 部署说明
 
-## 1. GitHub Secrets
+## 1. GitHub Variables 和 Secrets
 
-在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions -> New repository secret` 中添加：
+workflow 对以下配置的读取顺序是：先读取 `Secrets`，读取不到再读取 `Variables`。
 
-| Secret | 示例值 | 说明 |
+在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions -> Variables -> New repository variable` 中可以添加：
+
+| Variable | 示例值 | 说明 |
 | --- | --- | --- |
 | `ECS_HOST` | `8.137.151.95` | 阿里云 ECS 公网 IP |
 | `ECS_USERNAME` | `root` | SSH 用户名 |
-| `ECS_SSH_PRIVATE_KEY` | `-----BEGIN RSA PRIVATE KEY-----...` | SSH 私钥全文 |
 | `ECS_SSH_PORT` | `22` | SSH 端口，不填时 workflow 默认使用 `22` |
 | `FEISHU_BOT_WEBHOOK_URL` | `https://open.feishu.cn/open-apis/bot/v2/hook/...` | 飞书机器人 Webhook，用于发送部署结果通知 |
 | `APP_CONFIG_YAML` | `app:\n  port: 3000\n...` | 可选。生产环境 `config/app.production.yaml` 全文 |
+
+成功标志：Variables 页面能看到这些名称和值。
+
+注意：Variables 是明文可见的。`APP_CONFIG_YAML` 和 `FEISHU_BOT_WEBHOOK_URL` 如果包含密钥或 webhook，更建议放在 Secrets；只有 Secrets 没配置时才会使用 Variables。
+
+在 `Settings -> Secrets and variables -> Actions -> Secrets -> New repository secret` 中添加：
+
+| Secret | 示例值 | 说明 |
+| --- | --- | --- |
+| `ECS_HOST` | `8.137.151.95` | 可选。优先级高于同名 Variable |
+| `ECS_USERNAME` | `root` | 可选。优先级高于同名 Variable |
+| `ECS_SSH_PRIVATE_KEY` | `-----BEGIN RSA PRIVATE KEY-----...` | SSH 私钥全文 |
+| `ECS_SSH_PORT` | `22` | 可选。优先级高于同名 Variable |
+| `FEISHU_BOT_WEBHOOK_URL` | `https://open.feishu.cn/open-apis/bot/v2/hook/...` | 可选。优先级高于同名 Variable |
+| `APP_CONFIG_YAML` | `app:\n  port: 3000\n...` | 可选。优先级高于同名 Variable |
 | `PRODUCTION_ENV` | `POSTGRES_URI=postgresql://...` | 可选。生产环境变量，每行一个 |
 
 成功标志：Secrets 页面能看到这些名称，但看不到明文值。
@@ -54,9 +70,10 @@ corepack --version
 cd /root/dingstock/dingstock-finance
 pm2 status dingstock-finance
 pm2 logs dingstock-finance --lines 100
+systemctl is-enabled pm2-root
 ```
 
-成功标志：`pm2 status` 中 `dingstock-finance` 状态为 `online`，日志中没有启动错误。
+成功标志：`pm2 status` 中 `dingstock-finance` 状态为 `online`，日志中没有启动错误，`systemctl is-enabled pm2-root` 输出 `enabled`。
 
 ## 5. 配置文件优先级
 
