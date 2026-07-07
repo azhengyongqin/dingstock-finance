@@ -1,0 +1,168 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dingstock-finance-production
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '11.7.0'
+  APP_DIR: /root/dingstock/dingstock-finance
+  FEISHU_BOT_WEBHOOK_URL: ${{ secrets.FEISHU_BOT_WEBHOOK_URL }}
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        run: pnpm prisma:validate
+
+      - name: Lint
+        run: pnpm lint:check
+
+      - name: Test
+        run: pnpm test --runInBand
+
+      - name: Build
+        run: pnpm build
+
+  deploy:
+    name: Deploy to Aliyun ECS
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment config from secrets
+        env:
+          APP_CONFIG_YAML: ${{ secrets.APP_CONFIG_YAML }}
+          PRODUCTION_ENV: ${{ secrets.PRODUCTION_ENV }}
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy
+
+          # APP_CONFIG_YAML 用于生成 ECS 上的 config/app.production.yaml。
+          if [ -n "${APP_CONFIG_YAML}" ]; then
+            printf '%s\n' "${APP_CONFIG_YAML}" > .deploy/app.production.yaml
+          fi
+
+          # PRODUCTION_ENV 用于生成 ECS 上的 .env.production，PM2 启动前会加载。
+          if [ -n "${PRODUCTION_ENV}" ]; then
+            printf '%s\n' "${PRODUCTION_ENV}" > .deploy/.env.production
+          fi
+
+      - name: Upload project files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USERNAME }}
+          key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.ECS_SSH_PORT || 22 }}
+          source: package.json,pnpm-lock.yaml,pnpm-workspace.yaml,nest-cli.json,tsconfig.json,tsconfig.build.json,prisma.config.ts,ecosystem.config.cjs,src,prisma,config,.deploy
+          target: ${{ env.APP_DIR }}
+          rm: false
+          overwrite: true
+          strip_components: 0
+
+      - name: Install, migrate, build and reload PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USERNAME }}
+          key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.ECS_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+
+            export APP_DIR="${{ env.APP_DIR }}"
+            cd "${APP_DIR}"
+
+            mkdir -p config logs
+
+            # 如果 GitHub Secret 提供了生产配置，则覆盖服务器上的生产配置文件。
+            if [ -f .deploy/app.production.yaml ]; then
+              mv .deploy/app.production.yaml config/app.production.yaml
+              chmod 600 config/app.production.yaml
+            fi
+
+            # 如果 GitHub Secret 提供了环境变量文件，则让 PM2 启动前加载这些变量。
+            if [ -f .deploy/.env.production ]; then
+              mv .deploy/.env.production .env.production
+              chmod 600 .env.production
+            fi
+            rm -rf .deploy
+
+            if [ -s "${HOME}/.nvm/nvm.sh" ]; then
+              # 兼容使用 nvm 安装 Node.js 的 ECS。
+              . "${HOME}/.nvm/nvm.sh"
+            fi
+
+            corepack enable
+            corepack prepare "pnpm@${{ env.PNPM_VERSION }}" --activate
+
+            if ! command -v pm2 >/dev/null 2>&1; then
+              npm install -g pm2
+            fi
+
+            pnpm install --frozen-lockfile
+
+            if [ -f .env.production ]; then
+              set -a
+              . ./.env.production
+              set +a
+            fi
+
+            pnpm prisma:generate
+            pnpm exec prisma migrate deploy
+            pnpm build
+
+            pm2 startOrReload ecosystem.config.cjs --env production --update-env
+            pm2 save
+
+      - name: Send Feishu deployment message
+        if: success() && env.FEISHU_BOT_WEBHOOK_URL != ''
+        uses: foxundermoon/feishu-action@v2
+        with:
+          url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
+          msg_type: text
+          content: |
+            text: |
+              Github Action Information:
+              repository: ${{ github.repository }}
+              committer: ${{ github.actor }}
+              event: ${{ github.event_name }}
+              ref_name: ${{ github.ref_name }}
+              commit_sha: ${{ github.sha }}
+              run_url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              deploy_path: ${{ env.APP_DIR }}
+              job status: ${{ job.status }}
