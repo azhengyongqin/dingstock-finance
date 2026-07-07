@@ -164,11 +164,11 @@ jobs:
     needs:
       - ci
       - deploy
-    if: always() && env.FEISHU_BOT_WEBHOOK_URL != ''
+    if: always()
 
     steps:
       - name: Send Feishu success message
-        if: needs.ci.result == 'success' && needs.deploy.result == 'success'
+        if: needs.ci.result == 'success' && needs.deploy.result == 'success' && env.FEISHU_BOT_WEBHOOK_URL != ''
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
@@ -187,7 +187,7 @@ jobs:
               deploy_status: ${{ needs.deploy.result }}
 
       - name: Send Feishu failure message
-        if: needs.ci.result != 'success' || needs.deploy.result != 'success'
+        if: (needs.ci.result != 'success' || needs.deploy.result != 'success') && env.FEISHU_BOT_WEBHOOK_URL != ''
         uses: foxundermoon/feishu-action@v2
         with:
           url: ${{ env.FEISHU_BOT_WEBHOOK_URL }}
