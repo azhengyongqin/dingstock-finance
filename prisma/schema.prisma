@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["finance"]
+}
+
+model BankAccount {
+  id           String   @id @default(uuid()) @db.Uuid
+  UID          String   @unique @map("uid")
+  name         String?  @db.VarChar
+  smPrivateKey String   @map("sm_private_key") @db.Text
+  smPublicKey  String   @map("sm_public_key") @db.Text
+  smSymKey     String   @map("sm_sym_key") @db.Text
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  cards        BankAccountCard[]
+  transactions BankTransaction[]
+  syncStates   BankTransactionSyncState[]
+
+  @@map("bank_accounts")
+  @@schema("finance")
+}
+
+model BankAccountCard {
+  id            String @id @default(uuid()) @db.Uuid
+  bankAccountId String @map("bank_account_id") @db.Uuid
+  name          String
+  cardNbr       String @unique @map("card_nbr")
+
+  account BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@map("bank_account_cards")
+  @@schema("finance")
+}
+
+model BankTransaction {
+  id                String    @id @default(uuid()) @db.Uuid
+  bankAccountId     String    @map("bank_account_id") @db.Uuid
+  UID               String    @map("uid")
+  cardNbr           String    @map("card_nbr")
+  transDatetime     DateTime  @map("trans_datetime") @db.Timestamptz
+  transSequenceIdn  String    @unique @map("trans_sequence_idn")
+  raw               Json      @db.JsonB
+  syncedToBitableAt DateTime? @map("synced_to_bitable_at") @db.Timestamptz
+  bitableRecordId   String?   @map("bitable_record_id") @db.VarChar
+  bitableFieldsHash String?   @map("bitable_fields_hash") @db.VarChar
+  bitableCheckedAt  DateTime? @map("bitable_checked_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([transDatetime])
+  @@index([cardNbr, transDatetime])
+  @@index([UID, cardNbr, transDatetime])
+  @@index([bankAccountId])
+  @@index([UID])
+  @@index([cardNbr])
+  @@map("bank_transactions")
+  @@schema("finance")
+}
+
+model BankTransactionSyncState {
+  id              String    @id @default(uuid()) @db.Uuid
+  bankAccountId   String    @map("bank_account_id") @db.Uuid
+  UID             String    @map("uid")
+  cardNbr         String    @map("card_nbr")
+  breakpointY1    Json      @default("[]") @map("breakpoint_y1") @db.JsonB
+  lastBeginDate   String?   @map("last_begin_date") @db.VarChar
+  lastEndDate     String?   @map("last_end_date") @db.VarChar
+  lastStartedAt   DateTime? @map("last_started_at") @db.Timestamptz
+  lastFinishedAt  DateTime? @map("last_finished_at") @db.Timestamptz
+  lastSyncedCount Int       @default(0) @map("last_synced_count")
+  lastError       String?   @map("last_error") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([bankAccountId, cardNbr])
+  @@map("bank_transaction_sync_states")
+  @@schema("finance")
+}

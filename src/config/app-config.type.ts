@@ -21,7 +21,6 @@ export interface AppConfig {
     appId: string;
     appSecret: string;
     baseToken: string;
-    tableId: string;
     bitableSyncEnabled: boolean;
     batchSize: number;
     accountNameMaxLength: number;

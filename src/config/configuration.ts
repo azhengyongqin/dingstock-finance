@@ -52,10 +52,6 @@ export default (): AppConfig => {
         process.env.LARK_BITABLE_BASE_TOKEN ??
         yamlConfig.lark?.baseToken ??
         'HFOwbMc0oaj2D5sHzQPcCeO7nob',
-      tableId:
-        process.env.LARK_BITABLE_TABLE_ID ??
-        yamlConfig.lark?.tableId ??
-        'tblYHrh9FhV2CO0A',
       bitableSyncEnabled:
         process.env.LARK_BITABLE_SYNC_ENABLED !== 'false' &&
         (yamlConfig.lark?.bitableSyncEnabled ?? true),

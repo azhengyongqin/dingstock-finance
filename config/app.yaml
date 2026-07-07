@@ -3,7 +3,8 @@ app:
   port: 3000
 
 postgres:
-  uri: postgres://dingstock:dingstock_password@localhost:5432/dingstock_finance
+  # uri: postgres://dingstock:dingstock@localhost:5432/dingstock_finance
+  uri: postgresql://postgres:postgres_AINdnYyo78131EERCC_@pgm-2vcw506e1rf15itqeo.pgsql.cn-chengdu.rds.aliyuncs.com:5432/dingstock_finance
   synchronize: true
 
 redis:
@@ -31,9 +32,8 @@ lark:
   # 自建应用 appId/appSecret 走环境变量注入，避免上传敏感信息到仓库。
   appId: 'cli_aabbb04358385cca'
   appSecret: 'It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ'
-  # 当前目标 Base 与表，先从链接中解析得到：baseToken / table_id。
+  # 当前目标 Base；同步时会按 cards[index].name 动态匹配同名数据表。
   baseToken: 'HFOwbMc0oaj2D5sHzQPcCeO7nob'
-  tableId: 'tblYHrh9FhV2CO0A'
   bitableSyncEnabled: true
   batchSize: 200
   accountNameMaxLength: 50

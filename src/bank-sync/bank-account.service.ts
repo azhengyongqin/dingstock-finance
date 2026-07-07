@@ -3,73 +3,88 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   BankAccountCardDto,
   CreateBankAccountDto,
 } from './dto/create-bank-account.dto';
 import { UpdateBankAccountDto } from './dto/update-bank-account.dto';
-import { BankAccount } from './entities/bank-account.entity';
-import { BankAccountCard } from './entities/bank-account-card.entity';
 
 @Injectable()
 export class BankAccountService {
-  constructor(
-    @InjectRepository(BankAccount)
-    private readonly accountRepository: Repository<BankAccount>,
-    @InjectRepository(BankAccountCard)
-    private readonly cardRepository: Repository<BankAccountCard>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateBankAccountDto) {
-    const account = this.accountRepository.create({
-      ...dto,
-      enabled: dto.enabled ?? true,
-      cards: this.normalizeCards(dto.cards).map((card) =>
-        this.cardRepository.create(card),
-      ),
+    const { cards, ...accountFields } = dto;
+
+    return this.prisma.bankAccount.create({
+      data: {
+        ...accountFields,
+        enabled: dto.enabled ?? true,
+        // cards 和账户同事务创建，保持原 TypeORM cascade: true 的行为。
+        cards: {
+          create: this.normalizeCards(cards),
+        },
+      },
+      include: { cards: true },
     });
-    return this.accountRepository.save(account);
   }
 
   async findAll() {
-    return this.accountRepository.find({ order: { createdAt: 'DESC' } });
+    return this.prisma.bankAccount.findMany({
+      include: { cards: true },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async findEnabled() {
-    return this.accountRepository.find({ where: { enabled: true } });
+    return this.prisma.bankAccount.findMany({
+      where: { enabled: true },
+      include: { cards: true },
+    });
   }
 
   async update(id: string, dto: UpdateBankAccountDto) {
-    const account = await this.accountRepository.findOne({ where: { id } });
+    const account = await this.prisma.bankAccount.findUnique({
+      where: { id },
+    });
     if (!account) {
       throw new NotFoundException('网银账户不存在');
     }
 
     const { cards, ...accountFields } = dto;
-    const update: Partial<BankAccount> = {
-      ...accountFields,
-    };
 
-    if (cards) {
-      // 替换银行卡列表前先清理旧子表记录，避免级联保存时遗留已删除卡号。
-      await this.cardRepository.delete({ bankAccountId: id });
-      update.cards = this.normalizeCards(cards).map((card) =>
-        this.cardRepository.create({ ...card, bankAccountId: id }),
-      );
-    }
+    return this.prisma.$transaction(async (tx) => {
+      if (cards) {
+        // 替换银行卡列表前先清理旧子表记录，避免遗留已删除卡号。
+        await tx.bankAccountCard.deleteMany({ where: { bankAccountId: id } });
+      }
 
-    Object.assign(account, update);
-    return this.accountRepository.save(account);
+      return tx.bankAccount.update({
+        where: { id },
+        data: {
+          ...accountFields,
+          ...(cards
+            ? {
+                cards: {
+                  create: this.normalizeCards(cards),
+                },
+              }
+            : {}),
+        },
+        include: { cards: true },
+      });
+    });
   }
 
   async remove(id: string) {
-    const account = await this.accountRepository.findOne({ where: { id } });
+    const account = await this.prisma.bankAccount.findUnique({
+      where: { id },
+    });
     if (!account) {
       throw new NotFoundException('网银账户不存在');
     }
-    await this.accountRepository.remove(account);
+    await this.prisma.bankAccount.delete({ where: { id } });
     return { deleted: true };
   }
 

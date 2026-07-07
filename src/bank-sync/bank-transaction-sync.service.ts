@@ -1,18 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Prisma } from '@prisma/client';
 import { CmbApiService } from '../cmb/cmb.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { BankAccountService } from './bank-account.service';
 import {
-  BankTransaction,
-  BankTransactionDocument,
-} from './entities/bank-transaction.entity';
-import {
-  BankTransactionSyncState,
   BankTransactionSyncStateDocument,
-} from './entities/bank-transaction-sync-state.entity';
-import { BankAccountDocument } from './entities/bank-account.entity';
+  BankAccountDocument,
+} from './types/bank-records.type';
 
 interface BreakpointY1 {
   acctNbr?: string;
@@ -36,10 +31,7 @@ export class BankTransactionSyncService {
   constructor(
     private readonly accountService: BankAccountService,
     private readonly cmbApiService: CmbApiService,
-    @InjectRepository(BankTransaction)
-    private readonly transactionRepository: Repository<BankTransactionDocument>,
-    @InjectRepository(BankTransactionSyncState)
-    private readonly syncStateRepository: Repository<BankTransactionSyncStateDocument>,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Cron('0 */3 * * * *')
@@ -64,48 +56,67 @@ export class BankTransactionSyncService {
 
   private async syncCard(account: BankAccountDocument, cardNbr: string) {
     const startedAt = new Date();
-    const accountId = account._id;
-    let state = await this.syncStateRepository.findOneBy({
-      bankAccountId: accountId,
-      cardNbr,
+    const accountId = account.id;
+    let state = await this.prisma.bankTransactionSyncState.findUnique({
+      where: {
+        bankAccountId_cardNbr: {
+          bankAccountId: accountId,
+          cardNbr,
+        },
+      },
     });
 
     if (!state) {
-      state = await this.syncStateRepository.save({
-        bankAccountId: accountId,
-        UID: account.UID,
-        cardNbr,
-        breakpointY1: [],
-        lastSyncedCount: 0,
-        lastStartedAt: startedAt,
-        lastError: null,
+      state = await this.prisma.bankTransactionSyncState.create({
+        data: {
+          bankAccountId: accountId,
+          UID: account.UID,
+          cardNbr,
+          breakpointY1: [],
+          lastSyncedCount: 0,
+          lastStartedAt: startedAt,
+          lastError: null,
+        },
       });
     } else {
       // 只刷新本轮状态，不覆盖银行返回的续传断点。
-      await this.syncStateRepository.update(state.id, {
-        lastStartedAt: startedAt,
-        lastError: null,
+      await this.prisma.bankTransactionSyncState.update({
+        where: { id: state.id },
+        data: {
+          lastStartedAt: startedAt,
+          lastError: null,
+        },
       });
     }
 
     try {
-      const result = await this.queryAndPersist(account, cardNbr, state);
-      await this.syncStateRepository.update(state.id, {
-        breakpointY1: result.breakpointY1 as Array<Record<string, string>>,
-        lastBeginDate: result.beginDate,
-        lastEndDate: result.endDate,
-        lastFinishedAt: new Date(),
-        lastSyncedCount: result.syncedCount,
-        lastError: null,
+      const result = await this.queryAndPersist(
+        account,
+        cardNbr,
+        this.toSyncStateDocument(state),
+      );
+      await this.prisma.bankTransactionSyncState.update({
+        where: { id: state.id },
+        data: {
+          breakpointY1: result.breakpointY1 as unknown as Prisma.InputJsonValue,
+          lastBeginDate: result.beginDate,
+          lastEndDate: result.endDate,
+          lastFinishedAt: new Date(),
+          lastSyncedCount: result.syncedCount,
+          lastError: null,
+        },
       });
       this.logger.log(
         `银行交易同步完成 UID=${account.UID} cardNbr=${cardNbr} count=${result.syncedCount}`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.syncStateRepository.update(state.id, {
-        lastFinishedAt: new Date(),
-        lastError: message,
+      await this.prisma.bankTransactionSyncState.update({
+        where: { id: state.id },
+        data: {
+          lastFinishedAt: new Date(),
+          lastError: message,
+        },
       });
       this.logger.error(
         `银行交易同步失败 UID=${account.UID} cardNbr=${cardNbr}: ${message}`,
@@ -241,15 +252,15 @@ export class BankTransactionSyncService {
       return;
     }
 
-    const accountId = account._id;
-    await this.transactionRepository.upsert(
+    const accountId = account.id;
+    await this.prisma.$transaction(
       transactions.map((item) => {
         const normalized = this.trimRecord(item);
         const transSequenceIdn = this.requiredString(
           normalized.transSequenceIdn,
         );
         const transDate = this.requiredString(normalized.transDate);
-        return {
+        const data = {
           bankAccountId: accountId,
           UID: account.UID,
           cardNbr,
@@ -258,11 +269,34 @@ export class BankTransactionSyncService {
             this.optionalString(normalized.transTime),
           ),
           transSequenceIdn,
-          raw: normalized,
+          raw: normalized as Prisma.InputJsonObject,
         };
-      }) as any,
-      ['transSequenceIdn'],
+
+        // 招行流水号唯一；重复拉取时更新原始报文，保持幂等同步。
+        return this.prisma.bankTransaction.upsert({
+          where: { transSequenceIdn },
+          create: data,
+          update: {
+            bankAccountId: data.bankAccountId,
+            UID: data.UID,
+            cardNbr: data.cardNbr,
+            transDatetime: data.transDatetime,
+            raw: data.raw,
+          },
+        });
+      }),
     );
+  }
+
+  private toSyncStateDocument(
+    state: Awaited<
+      ReturnType<PrismaService['bankTransactionSyncState']['findUnique']>
+    >,
+  ): BankTransactionSyncStateDocument {
+    return {
+      ...state!,
+      breakpointY1: this.readArray<Record<string, string>>(state?.breakpointY1),
+    };
   }
 
   private resolveBeginDate(breakpointY1: Array<Record<string, string>>) {
