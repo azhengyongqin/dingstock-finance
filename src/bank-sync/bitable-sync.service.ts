@@ -1,20 +1,20 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { AxiosError } from 'axios';
 import * as lark from '@larksuiteoapi/node-sdk';
+import { In, Repository } from 'typeorm';
 import { AppConfig } from '../config/app-config.type';
 import {
   BankTransaction,
   BankTransactionDocument,
-} from './schemas/bank-transaction.schema';
+} from './entities/bank-transaction.entity';
 import {
   BankAccount,
   BankAccountDocument,
-} from './schemas/bank-account.schema';
+} from './entities/bank-account.entity';
 
 interface BitableRecordPayload {
   records: Array<{
@@ -113,10 +113,10 @@ export class BitableSyncService implements OnModuleInit {
   private permissionCheckPassed = false;
 
   constructor(
-    @InjectModel(BankTransaction.name)
-    private readonly transactionModel: Model<BankTransactionDocument>,
-    @InjectModel(BankAccount.name)
-    private readonly accountModel: Model<BankAccountDocument>,
+    @InjectRepository(BankTransaction)
+    private readonly transactionRepository: Repository<BankTransactionDocument>,
+    @InjectRepository(BankAccount)
+    private readonly accountRepository: Repository<BankAccountDocument>,
     configService: ConfigService<AppConfig, true>,
   ) {
     this.larkClient = new lark.Client({
@@ -364,21 +364,15 @@ export class BitableSyncService implements OnModuleInit {
   }
 
   private async fetchSyncCandidates(): Promise<BitableCheckedCandidates> {
-    const pending = await this.transactionModel
-      .find({
-        $or: [
-          { syncedToBitableAt: { $exists: false } },
-          { syncedToBitableAt: null },
-          { bitableRecordId: { $exists: false } },
-          { bitableRecordId: null },
-          { bitableFieldsHash: { $exists: false } },
-          { bitableFieldsHash: null },
-        ],
-      })
+    const pending = await this.transactionRepository
+      .createQueryBuilder('tx')
+      .where('tx.syncedToBitableAt IS NULL')
+      .orWhere('tx.bitableRecordId IS NULL')
+      .orWhere('tx.bitableFieldsHash IS NULL')
       // 高频同步优先处理本地待同步/缺少同步状态的数据，避免历史数据被反复全量更新。
-      .sort({ transDatetime: 1 })
+      .orderBy('tx.transDatetime', 'ASC')
       .limit(this.batchSize)
-      .exec();
+      .getMany();
 
     if (pending.length > 0) {
       return { transactions: pending };
@@ -388,15 +382,15 @@ export class BitableSyncService implements OnModuleInit {
   }
 
   private async fetchBitableCheckedCandidates(): Promise<BitableCheckedCandidates> {
-    const transactions = await this.transactionModel
-      .find({
-        bitableRecordId: { $exists: true, $ne: null },
-        bitableFieldsHash: { $exists: true, $ne: null },
-      })
+    const transactions = await this.transactionRepository
+      .createQueryBuilder('tx')
+      .where('tx.bitableRecordId IS NOT NULL')
+      .andWhere('tx.bitableFieldsHash IS NOT NULL')
       // 没有本地新增数据时，只小批量校验最久未检查的飞书记录，避免全量扫表。
-      .sort({ bitableCheckedAt: 1, transDatetime: 1 })
+      .orderBy('tx.bitableCheckedAt', 'ASC', 'NULLS FIRST')
+      .addOrderBy('tx.transDatetime', 'ASC')
       .limit(Math.min(this.batchSize, this.bitableCheckBatchSize))
-      .exec();
+      .getMany();
 
     if (transactions.length === 0) {
       return { transactions: [] };
@@ -413,9 +407,9 @@ export class BitableSyncService implements OnModuleInit {
     );
 
     if (existingTransactions.length > 0) {
-      await this.transactionModel.updateMany(
-        { _id: { $in: existingTransactions.map((tx) => tx._id) } },
-        { $set: { bitableCheckedAt: now } },
+      await this.transactionRepository.update(
+        { id: In(existingTransactions.map((tx) => tx.id)) },
+        { bitableCheckedAt: now },
       );
     }
 
@@ -423,15 +417,13 @@ export class BitableSyncService implements OnModuleInit {
       (tx) => !tx.bitableRecordId || !existingRecordIds.has(tx.bitableRecordId),
     );
     if (missingTransactions.length > 0) {
-      await this.transactionModel.updateMany(
-        { _id: { $in: missingTransactions.map((tx) => tx._id) } },
+      await this.transactionRepository.update(
+        { id: In(missingTransactions.map((tx) => tx.id)) },
         {
-          $unset: {
-            bitableRecordId: '',
-            bitableFieldsHash: '',
-            syncedToBitableAt: '',
-          },
-          $set: { bitableCheckedAt: now },
+          bitableRecordId: null,
+          bitableFieldsHash: null,
+          syncedToBitableAt: null,
+          bitableCheckedAt: now,
         },
       );
       this.logger.warn(
@@ -458,12 +450,10 @@ export class BitableSyncService implements OnModuleInit {
   }
 
   private async logNoUnsyncedTransactionsWithAccountSummary() {
-    const accounts = await this.accountModel
-      .find()
+    const accounts = await this.accountRepository.find({
       // 只读取日志需要的安全字段，避免误把密钥类字段打进日志。
-      .select('name cards')
-      .sort({ enabled: -1, UID: 1 })
-      .exec();
+      order: { enabled: 'DESC', UID: 'ASC' },
+    });
 
     const accountSummary = accounts.map((account) =>
       this.formatBankAccountForLog(account),
@@ -513,10 +503,9 @@ export class BitableSyncService implements OnModuleInit {
       return new Map();
     }
 
-    const accounts = await this.accountModel
-      .find({ UID: { $in: uids } })
-      .select('UID cards')
-      .exec();
+    const accounts = await this.accountRepository.find({
+      where: { UID: In(uids) },
+    });
 
     const accountCardMap = new Map<string, BankAccountCardInfo>();
     for (const account of accounts) {
@@ -718,9 +707,14 @@ export class BitableSyncService implements OnModuleInit {
         operation.updateOne.update.$set.bitableRecordId !== undefined,
     );
 
-    if (operations.length > 0) {
-      await this.transactionModel.bulkWrite(operations, { ordered: false });
-    }
+    await Promise.all(
+      operations.map((operation) =>
+        this.transactionRepository.update(
+          operation.updateOne.filter._id,
+          operation.updateOne.update.$set,
+        ),
+      ),
+    );
   }
 
   private async fetchBitableRecordsByTransactionIds(
@@ -1037,11 +1031,26 @@ export class BitableSyncService implements OnModuleInit {
     if (value === undefined || value === null) {
       return undefined;
     }
-    return String(value);
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return String(value);
+    }
+    return undefined;
   }
 
   private toNumber(value: unknown) {
     if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+    ) {
       return undefined;
     }
 
@@ -1064,25 +1073,15 @@ export class BitableSyncService implements OnModuleInit {
     }
 
     if (Array.isArray(value)) {
-      return value
+      return (value as unknown[])
         .map((item) => {
           if (typeof item === 'string') {
             return item.trim();
           }
-          if (
-            item &&
-            typeof item === 'object' &&
-            'text' in item &&
-            typeof item.text === 'string'
-          ) {
+          if (this.hasStringField(item, 'text')) {
             return item.text.trim();
           }
-          if (
-            item &&
-            typeof item === 'object' &&
-            'name' in item &&
-            typeof item.name === 'string'
-          ) {
+          if (this.hasStringField(item, 'name')) {
             return item.name.trim();
           }
           return '';
@@ -1090,18 +1089,24 @@ export class BitableSyncService implements OnModuleInit {
         .find((item) => item.length > 0);
     }
 
-    if (value && typeof value === 'object' && 'name' in value) {
-      const maybeName = (value as { name?: unknown }).name;
-      if (typeof maybeName === 'string') {
-        return maybeName.trim();
-      }
+    if (this.hasStringField(value, 'name')) {
+      return value.name.trim();
     }
-    if (value && typeof value === 'object' && 'text' in value) {
-      const maybeText = (value as { text?: unknown }).text;
-      if (typeof maybeText === 'string') {
-        return maybeText.trim();
-      }
+    if (this.hasStringField(value, 'text')) {
+      return value.text.trim();
     }
     return undefined;
+  }
+
+  private hasStringField<T extends string>(
+    value: unknown,
+    field: T,
+  ): value is Record<T, string> {
+    return (
+      value !== null &&
+      typeof value === 'object' &&
+      field in value &&
+      typeof (value as Record<T, unknown>)[field] === 'string'
+    );
   }
 }

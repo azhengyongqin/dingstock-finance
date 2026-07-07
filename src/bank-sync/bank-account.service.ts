@@ -3,61 +3,73 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import {
   BankAccountCardDto,
   CreateBankAccountDto,
 } from './dto/create-bank-account.dto';
 import { UpdateBankAccountDto } from './dto/update-bank-account.dto';
-import {
-  BankAccount,
-  BankAccountDocument,
-} from './schemas/bank-account.schema';
+import { BankAccount } from './entities/bank-account.entity';
+import { BankAccountCard } from './entities/bank-account-card.entity';
 
 @Injectable()
 export class BankAccountService {
   constructor(
-    @InjectModel(BankAccount.name)
-    private readonly accountModel: Model<BankAccountDocument>,
+    @InjectRepository(BankAccount)
+    private readonly accountRepository: Repository<BankAccount>,
+    @InjectRepository(BankAccountCard)
+    private readonly cardRepository: Repository<BankAccountCard>,
   ) {}
 
   async create(dto: CreateBankAccountDto) {
-    const account = new this.accountModel({
+    const account = this.accountRepository.create({
       ...dto,
       enabled: dto.enabled ?? true,
-      cards: this.normalizeCards(dto.cards),
+      cards: this.normalizeCards(dto.cards).map((card) =>
+        this.cardRepository.create(card),
+      ),
     });
-    return account.save();
+    return this.accountRepository.save(account);
   }
 
   async findAll() {
-    return this.accountModel.find().sort({ createdAt: -1 }).exec();
+    return this.accountRepository.find({ order: { createdAt: 'DESC' } });
   }
 
   async findEnabled() {
-    return this.accountModel.find({ enabled: true }).exec();
+    return this.accountRepository.find({ where: { enabled: true } });
   }
 
   async update(id: string, dto: UpdateBankAccountDto) {
-    const update = {
-      ...dto,
-      ...(dto.cards ? { cards: this.normalizeCards(dto.cards) } : {}),
-    };
-    const account = await this.accountModel
-      .findByIdAndUpdate(id, update, { returnDocument: 'after' })
-      .exec();
+    const account = await this.accountRepository.findOne({ where: { id } });
     if (!account) {
       throw new NotFoundException('网银账户不存在');
     }
-    return account;
+
+    const { cards, ...accountFields } = dto;
+    const update: Partial<BankAccount> = {
+      ...accountFields,
+    };
+
+    if (cards) {
+      // 替换银行卡列表前先清理旧子表记录，避免级联保存时遗留已删除卡号。
+      await this.cardRepository.delete({ bankAccountId: id });
+      update.cards = this.normalizeCards(cards).map((card) =>
+        this.cardRepository.create({ ...card, bankAccountId: id }),
+      );
+    }
+
+    Object.assign(account, update);
+    return this.accountRepository.save(account);
   }
 
   async remove(id: string) {
-    const account = await this.accountModel.findByIdAndDelete(id).exec();
+    const account = await this.accountRepository.findOne({ where: { id } });
     if (!account) {
       throw new NotFoundException('网银账户不存在');
     }
+    await this.accountRepository.remove(account);
     return { deleted: true };
   }
 

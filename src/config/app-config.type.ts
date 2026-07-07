@@ -2,8 +2,9 @@ export interface AppConfig {
   app: {
     port: number;
   };
-  mongo: {
+  postgres: {
     uri: string;
+    synchronize: boolean;
   };
   redis: {
     uri: string;

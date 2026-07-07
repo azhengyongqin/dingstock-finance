@@ -320,7 +320,7 @@ export class CmbApiService {
     }
   }
 
-  private formatAxiosErrorResponse(data: unknown) {
+  private formatAxiosErrorResponse(data: unknown): string {
     if (data === undefined || data === null) {
       return '';
     }
@@ -328,9 +328,9 @@ export class CmbApiService {
       return data;
     }
     try {
-      return JSON.stringify(data);
+      return JSON.stringify(data) ?? '';
     } catch {
-      return String(data);
+      return '[unserializable response]';
     }
   }
 

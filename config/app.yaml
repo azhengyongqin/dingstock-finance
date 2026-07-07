@@ -2,8 +2,9 @@
 app:
   port: 3000
 
-mongo:
-  uri: mongodb://dingstock:dingstock_password@localhost:27017/dingstock_finance?authSource=admin
+postgres:
+  uri: postgres://dingstock:dingstock_password@localhost:5432/dingstock_finance
+  synchronize: true
 
 redis:
   uri: redis://localhost:6379/0
@@ -17,23 +18,22 @@ redis:
 #   symKey: "VuAzSWQhsoNqzn0K"
 #   timeoutMs: 60000
 
-
 # 招商银行 CMB API 网关测试环境参数（仅示例）
 cmb:
-  baseUrl: "https://cdc.cmbchina.com/cdcserver/api/v2"
-  uid: "U062801272"
-  privateKey: "RXGEmX3U7ZaEhif2bqHMbS2vy27Qx3Ovv4sS9WJKe6Y="
-  publicKey: "BEynMEZOjNpwZIiD9jXtZSGr3Ecpwn7r+m+wtafXHb6VIZTnugfuxhcKASq3hX+KX9JlHODDl9/RDKQv4XLOFak="
-  symKey: "31zaFy7dlijPv9fu"
+  baseUrl: 'https://cdc.cmbchina.com/cdcserver/api/v2'
+  uid: 'U062801272'
+  privateKey: 'RXGEmX3U7ZaEhif2bqHMbS2vy27Qx3Ovv4sS9WJKe6Y='
+  publicKey: 'BEynMEZOjNpwZIiD9jXtZSGr3Ecpwn7r+m+wtafXHb6VIZTnugfuxhcKASq3hX+KX9JlHODDl9/RDKQv4XLOFak='
+  symKey: '31zaFy7dlijPv9fu'
   timeoutMs: 30000
 
 lark:
   # 自建应用 appId/appSecret 走环境变量注入，避免上传敏感信息到仓库。
-  appId: "cli_aabbb04358385cca"
-  appSecret: "It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ"
+  appId: 'cli_aabbb04358385cca'
+  appSecret: 'It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ'
   # 当前目标 Base 与表，先从链接中解析得到：baseToken / table_id。
-  baseToken: "HFOwbMc0oaj2D5sHzQPcCeO7nob"
-  tableId: "tblYHrh9FhV2CO0A"
+  baseToken: 'HFOwbMc0oaj2D5sHzQPcCeO7nob'
+  tableId: 'tblYHrh9FhV2CO0A'
   bitableSyncEnabled: true
   batchSize: 200
   accountNameMaxLength: 50

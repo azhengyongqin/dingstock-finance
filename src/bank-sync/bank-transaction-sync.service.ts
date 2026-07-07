@@ -1,18 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CmbApiService } from '../cmb/cmb.service';
 import { BankAccountService } from './bank-account.service';
 import {
   BankTransaction,
   BankTransactionDocument,
-} from './schemas/bank-transaction.schema';
+} from './entities/bank-transaction.entity';
 import {
   BankTransactionSyncState,
   BankTransactionSyncStateDocument,
-} from './schemas/bank-transaction-sync-state.schema';
-import { BankAccountDocument } from './schemas/bank-account.schema';
+} from './entities/bank-transaction-sync-state.entity';
+import { BankAccountDocument } from './entities/bank-account.entity';
 
 interface BreakpointY1 {
   acctNbr?: string;
@@ -36,10 +36,10 @@ export class BankTransactionSyncService {
   constructor(
     private readonly accountService: BankAccountService,
     private readonly cmbApiService: CmbApiService,
-    @InjectModel(BankTransaction.name)
-    private readonly transactionModel: Model<BankTransactionDocument>,
-    @InjectModel(BankTransactionSyncState.name)
-    private readonly syncStateModel: Model<BankTransactionSyncStateDocument>,
+    @InjectRepository(BankTransaction)
+    private readonly transactionRepository: Repository<BankTransactionDocument>,
+    @InjectRepository(BankTransactionSyncState)
+    private readonly syncStateRepository: Repository<BankTransactionSyncStateDocument>,
   ) {}
 
   @Cron('0 */3 * * * *')
@@ -65,45 +65,48 @@ export class BankTransactionSyncService {
   private async syncCard(account: BankAccountDocument, cardNbr: string) {
     const startedAt = new Date();
     const accountId = account._id;
-    const state = await this.syncStateModel.findOneAndUpdate(
-      { bankAccountId: accountId, cardNbr },
-      {
-        $setOnInsert: {
-          bankAccountId: accountId,
-          UID: account.UID,
-          cardNbr,
-          breakpointY1: [],
-          lastSyncedCount: 0,
-        },
-        $set: { lastStartedAt: startedAt, lastError: undefined },
-      },
-      { returnDocument: 'after', upsert: true },
-    );
+    let state = await this.syncStateRepository.findOneBy({
+      bankAccountId: accountId,
+      cardNbr,
+    });
+
+    if (!state) {
+      state = await this.syncStateRepository.save({
+        bankAccountId: accountId,
+        UID: account.UID,
+        cardNbr,
+        breakpointY1: [],
+        lastSyncedCount: 0,
+        lastStartedAt: startedAt,
+        lastError: null,
+      });
+    } else {
+      // 只刷新本轮状态，不覆盖银行返回的续传断点。
+      await this.syncStateRepository.update(state.id, {
+        lastStartedAt: startedAt,
+        lastError: null,
+      });
+    }
 
     try {
       const result = await this.queryAndPersist(account, cardNbr, state);
-      await this.syncStateModel.updateOne(
-        { _id: state._id },
-        {
-          $set: {
-            breakpointY1: result.breakpointY1,
-            lastBeginDate: result.beginDate,
-            lastEndDate: result.endDate,
-            lastFinishedAt: new Date(),
-            lastSyncedCount: result.syncedCount,
-          },
-          $unset: { lastError: '' },
-        },
-      );
+      await this.syncStateRepository.update(state.id, {
+        breakpointY1: result.breakpointY1 as Array<Record<string, string>>,
+        lastBeginDate: result.beginDate,
+        lastEndDate: result.endDate,
+        lastFinishedAt: new Date(),
+        lastSyncedCount: result.syncedCount,
+        lastError: null,
+      });
       this.logger.log(
         `银行交易同步完成 UID=${account.UID} cardNbr=${cardNbr} count=${result.syncedCount}`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.syncStateModel.updateOne(
-        { _id: state._id },
-        { $set: { lastFinishedAt: new Date(), lastError: message } },
-      );
+      await this.syncStateRepository.update(state.id, {
+        lastFinishedAt: new Date(),
+        lastError: message,
+      });
       this.logger.error(
         `银行交易同步失败 UID=${account.UID} cardNbr=${cardNbr}: ${message}`,
       );
@@ -239,7 +242,7 @@ export class BankTransactionSyncService {
     }
 
     const accountId = account._id;
-    await this.transactionModel.bulkWrite(
+    await this.transactionRepository.upsert(
       transactions.map((item) => {
         const normalized = this.trimRecord(item);
         const transSequenceIdn = this.requiredString(
@@ -247,27 +250,18 @@ export class BankTransactionSyncService {
         );
         const transDate = this.requiredString(normalized.transDate);
         return {
-          updateOne: {
-            // 按银行交易唯一流水号去重，避免断点续传或定时重跑时重复入库。
-            filter: { transSequenceIdn },
-            update: {
-              $set: {
-                bankAccountId: accountId,
-                UID: account.UID,
-                cardNbr,
-                transDatetime: this.buildTransDatetime(
-                  transDate,
-                  this.optionalString(normalized.transTime),
-                ),
-                transSequenceIdn,
-                raw: normalized,
-              },
-            },
-            upsert: true,
-          },
+          bankAccountId: accountId,
+          UID: account.UID,
+          cardNbr,
+          transDatetime: this.buildTransDatetime(
+            transDate,
+            this.optionalString(normalized.transTime),
+          ),
+          transSequenceIdn,
+          raw: normalized,
         };
-      }),
-      { ordered: false },
+      }) as any,
+      ['transSequenceIdn'],
     );
   }
 

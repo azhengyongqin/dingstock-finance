@@ -1,21 +1,20 @@
 services:
-  mongodb:
-    image: mongo:latest
-    container_name: dingstock-mongodb
+  postgres:
+    image: postgres:18
+    container_name: dingstock-postgres
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: dingstock
-      MONGO_INITDB_ROOT_PASSWORD: dingstock_password
-      MONGO_INITDB_DATABASE: dingstock_finance
+      POSTGRES_USER: dingstock
+      POSTGRES_PASSWORD: dingstock_password
+      POSTGRES_DB: dingstock_finance
     ports:
-      - '27017:27017'
+      - '5432:5432'
     volumes:
-      - ./.volumes/mongodb:/data/db
+      - ./.volumes/postgres:/var/lib/postgresql
     networks:
       - dingstock-network
     healthcheck:
-      test:
-        ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping").ok']
+      test: ['CMD-SHELL', 'pg_isready -U dingstock -d dingstock_finance']
       interval: 10s
       timeout: 5s
       retries: 5

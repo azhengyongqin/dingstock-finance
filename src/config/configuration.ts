@@ -19,10 +19,14 @@ export default (): AppConfig => {
       // 允许部署环境通过 PORT 覆盖 YAML 中的本地默认端口。
       port: Number(process.env.PORT ?? yamlConfig.app.port),
     },
-    mongo: {
-      ...yamlConfig.mongo,
-      // 允许 CI、生产环境或临时测试环境直接注入 MongoDB 连接串。
-      uri: process.env.MONGO_URI ?? yamlConfig.mongo.uri,
+    postgres: {
+      ...yamlConfig.postgres,
+      // 允许 CI、生产环境或临时测试环境直接注入 PostgreSQL 连接串。
+      uri: process.env.POSTGRES_URI ?? yamlConfig.postgres.uri,
+      synchronize:
+        process.env.POSTGRES_SYNCHRONIZE === undefined
+          ? yamlConfig.postgres.synchronize
+          : process.env.POSTGRES_SYNCHRONIZE === 'true',
     },
     redis: {
       ...yamlConfig.redis,
