@@ -121,15 +121,15 @@ npm -v
 rsync --version
 ```
 
-如果没有 Node.js，先安装 Node.js 22 LTS 或更高版本。如果没有 `rsync`，安装：
+如果没有 Node.js，先安装 Node.js 22 LTS。注意：Prisma 7 当前不支持 Node.js 26，ECS 上不要使用 Node.js 26 跑部署。如果没有 `rsync`，安装：
 
 ```bash
 yum install -y rsync
 ```
 
-成功标志：`node -v` 能输出 `v22.x.x` 或更高版本，`rsync --version` 能正常输出版本。
+成功标志：`node -v` 能输出 `v22.x.x`，`rsync --version` 能正常输出版本。
 
-部署脚本会优先使用 ECS 已安装的 pnpm；如果没有 pnpm，才会通过 `https://registry.npmmirror.com` 安装 pnpm 和 PM2，避免 ECS 访问 `registry.npmjs.org` 不稳定导致 corepack 下载失败。
+部署脚本会优先使用 ECS 已安装的 pnpm；如果没有 pnpm，才会通过 `https://registry.npmmirror.com` 安装 pnpm 和 PM2。Prisma engine 下载会使用 `https://registry.npmmirror.com/-/binary/prisma`，避免 ECS 访问 `binaries.prisma.sh` 不稳定导致 `prisma generate` 失败。
 
 ## 6. 触发部署
 

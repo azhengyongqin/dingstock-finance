@@ -17,6 +17,10 @@ env:
   NODE_VERSION: '22'
   PNPM_VERSION: '11.7.0'
   NPM_REGISTRY: https://registry.npmmirror.com
+  NVM_NODEJS_ORG_MIRROR: https://npmmirror.com/mirrors/node
+  PRISMA_ENGINES_MIRROR: https://registry.npmmirror.com/-/binary/prisma
+  PRISMA_BINARIES_MIRROR: https://registry.npmmirror.com/-/binary/prisma
+  SCARF_ANALYTICS: 'false'
   APP_DIR: /root/dingstock/dingstock-finance
   FEISHU_BOT_WEBHOOK_URL: ${{ secrets.FEISHU_BOT_WEBHOOK_URL || vars.FEISHU_BOT_WEBHOOK_URL }}
 
@@ -142,7 +146,14 @@ jobs:
           if [ -s "${HOME}/.nvm/nvm.sh" ]; then
             # 兼容使用 nvm 安装 Node.js 的 ECS。
             . "${HOME}/.nvm/nvm.sh"
+            # Prisma 7 不支持 Node.js 26，部署时固定切换到 Node.js 22。
+            nvm use "${NODE_VERSION}" || {
+              nvm install "${NODE_VERSION}"
+              nvm use "${NODE_VERSION}"
+            }
           fi
+
+          node -e 'const major = Number(process.versions.node.split(".")[0]); if (![20, 22, 24].includes(major)) { console.error(`Unsupported Node.js version for Prisma: ${process.version}. Please install Node.js 22 LTS on ECS.`); process.exit(1); }'
 
           # ECS 访问 registry.npmjs.org 可能不稳定，这里使用 npm 镜像安装 pnpm，避免 corepack 下载失败。
           npm config set registry "${NPM_REGISTRY}"
@@ -153,11 +164,17 @@ jobs:
           # 固定 pnpm store 目录，ECS 后续部署可复用已下载依赖包。
           pnpm config set store-dir "${HOME}/.pnpm-store"
           pnpm config set registry "${NPM_REGISTRY}"
+          pnpm config set fetch-retries 5
+          pnpm config set fetch-retry-maxtimeout 120000
 
           if ! command -v pm2 >/dev/null 2>&1; then
             npm install -g pm2 --registry="${NPM_REGISTRY}"
           fi
 
+          # Prisma postinstall 会下载 engine，必须显式导出镜像变量，避免访问 binaries.prisma.sh 失败。
+          export PRISMA_ENGINES_MIRROR="${PRISMA_ENGINES_MIRROR}"
+          export PRISMA_BINARIES_MIRROR="${PRISMA_BINARIES_MIRROR}"
+          echo "Using Prisma engines mirror: ${PRISMA_ENGINES_MIRROR}"
           pnpm install --frozen-lockfile --prefer-offline
 
           if [ -f .env.production ]; then
