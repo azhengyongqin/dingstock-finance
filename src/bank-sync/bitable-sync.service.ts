@@ -6,10 +6,7 @@ import { AxiosError } from 'axios';
 import * as lark from '@larksuiteoapi/node-sdk';
 import { AppConfig } from '../config/app-config.type';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  BankAccountDocument,
-  BankTransactionDocument,
-} from './types/bank-records.type';
+import { BankTransactionDocument } from './types/bank-records.type';
 import {
   BITABLE_FIELD_TYPES,
   BITABLE_FIELDS,
@@ -164,12 +161,10 @@ export class BitableSyncService implements OnModuleInit {
     }
 
     if (this.running) {
-      this.logger.debug('多维表格同步正在执行，跳过本轮目标表结构刷新');
       return;
     }
 
     if (this.targetTableRefreshRunning) {
-      this.logger.debug('上一轮目标表结构刷新仍在执行，本轮跳过');
       return;
     }
 
@@ -218,7 +213,6 @@ export class BitableSyncService implements OnModuleInit {
   private async syncBatch() {
     const transactions = await this.fetchSyncCandidates();
     if (transactions.length === 0) {
-      await this.logNoUnsyncedTransactionsWithAccountSummary();
       return;
     }
     // 写入前先校验 Base 与表权限，避免 403 在批量写入时才暴露。
@@ -235,10 +229,6 @@ export class BitableSyncService implements OnModuleInit {
     const existingRecordMap =
       await this.fetchBitableRecordsByTransactionIds(syncRecords);
     const syncPlan = this.buildSyncPlan(syncRecords, existingRecordMap);
-
-    this.logger.debug(
-      `本批次准备新增=${syncPlan.toCreate.length}条，更新=${syncPlan.toUpdate.length}条`,
-    );
 
     if (
       syncPlan.toCreate.length === 0 &&
@@ -350,7 +340,6 @@ export class BitableSyncService implements OnModuleInit {
   private logBitableUnavailable(reason: string, action: string) {
     const message = `${reason}，${action}`;
     if (reason === '飞书多维表格同步未开启') {
-      this.logger.debug(message);
       return;
     }
     this.logger.warn(message);
@@ -447,44 +436,6 @@ export class BitableSyncService implements OnModuleInit {
     return plan;
   }
 
-  private async logNoUnsyncedTransactionsWithAccountSummary() {
-    const accounts = await this.prisma.bankAccount.findMany({
-      // 只读取日志需要的安全字段，避免误把密钥类字段打进日志。
-      include: { cards: true },
-      orderBy: [{ enabled: 'desc' }, { UID: 'asc' }],
-    });
-
-    const accountSummary = accounts.map((account) =>
-      this.formatBankAccountForLog(account),
-    );
-
-    this.logger.log(
-      `未发现可同步交易；bank_accounts=${JSON.stringify(accountSummary)}`,
-    );
-  }
-
-  private formatBankAccountForLog(account: BankAccountDocument) {
-    const cards = Array.isArray(account.cards) ? account.cards : [];
-
-    return {
-      name: account.name ?? '',
-      // 银行卡号属于敏感信息，日志里只保留首尾便于排查绑定关系。
-      cards: cards.map((card) => ({
-        name: card.name,
-        cardNbr: this.maskCardNumber(card.cardNbr),
-      })),
-    };
-  }
-
-  private maskCardNumber(cardNbr: string) {
-    const normalized = cardNbr.trim();
-    if (normalized.length <= 10) {
-      return `${normalized.slice(0, 2)}****${normalized.slice(-2)}`;
-    }
-
-    return `${normalized.slice(0, 6)}****${normalized.slice(-4)}`;
-  }
-
   private async loadAccountCardInfoMap(
     transactions: BankTransactionDocument[],
   ): Promise<Map<string, BankAccountCardInfo>> {
@@ -518,15 +469,6 @@ export class BitableSyncService implements OnModuleInit {
         }
       }
     }
-
-    const missingCardKeys = transactions
-      .map((tx) => this.toAccountCardKey(tx.UID, tx.cardNbr))
-      .filter((key) => !accountCardMap.has(key));
-    this.logger.debug(
-      `accountCardMap 命中=${accountCardMap.size}，` +
-        `已命中=${JSON.stringify(Array.from(accountCardMap.keys()))}` +
-        `，未命中=${JSON.stringify(missingCardKeys)}`,
-    );
 
     return accountCardMap;
   }
@@ -893,9 +835,6 @@ export class BitableSyncService implements OnModuleInit {
 
       const { viewId, missingFields } = tableStructure;
       if (!viewId) {
-        this.logger.debug(
-          `飞书表 ${table.name}(${table.table_id}) 缺少 ${BITABLE_TARGET_VIEW_NAME} 视图，已跳过`,
-        );
         continue;
       }
 
@@ -914,13 +853,6 @@ export class BitableSyncService implements OnModuleInit {
     }
 
     this.bitableTargetTableMap = targetMap;
-    this.logger.log(
-      `已加载飞书同步目标表 ${targetMap.size} 张：${Array.from(
-        targetMap.values(),
-      )
-        .map((item) => item.tableName)
-        .join(',')}`,
-    );
 
     return this.bitableTargetTableMap;
   }
@@ -1197,7 +1129,6 @@ export class BitableSyncService implements OnModuleInit {
 
     this.permissionCheckPassed = true;
     this.lastPermissionCheckAt = now;
-    this.logger.debug(`飞书 Base 权限探测通过（appToken=${this.appToken}）`);
   }
 
   private toBitableRecord(
