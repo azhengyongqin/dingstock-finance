@@ -131,7 +131,7 @@ export class BitableSyncService implements OnModuleInit {
   }
 
   // 定时任务：每30秒把数据库里的「未同步」交易推送到飞书多维表格。
-  @Cron('*/30 * * * * *')
+  @Cron('0 * * * * *')
   async syncPendingTransactions() {
     const unavailableReason = this.getBitableUnavailableReason();
     if (unavailableReason) {
@@ -155,7 +155,7 @@ export class BitableSyncService implements OnModuleInit {
   }
 
   // 定时刷新飞书表结构缓存：即使暂时没有待同步交易，也能感知表新增、删除和同名重建。
-  @Cron('0 * * * * *')
+  @Cron('0 */5 * * * *')
   async refreshTargetTableMap() {
     const unavailableReason = this.getBitableUnavailableReason();
     if (unavailableReason) {

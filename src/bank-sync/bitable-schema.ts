@@ -28,7 +28,7 @@ export const BITABLE_FIELDS = {
   AMOUNT_OUT: '支出金额',
   CURRENCY: '币种',
   COUNTERPARTY: '对方单位',
-  ACCOUNT: '账户',
+  ACCOUNT: '公司名字',
   CARD_NBR: '银行卡号',
   BALANCE: '余额（系统）',
   MONTH: '月份',
