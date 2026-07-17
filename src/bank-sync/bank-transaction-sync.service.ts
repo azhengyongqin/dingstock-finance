@@ -8,6 +8,7 @@ import {
   BankTransactionSyncStateDocument,
   BankAccountDocument,
 } from './types/bank-records.type';
+import { parseCmbTransactionDatetime } from './cmb-transaction-datetime';
 
 interface BreakpointY1 {
   acctNbr?: string;
@@ -339,29 +340,13 @@ export class BankTransactionSyncService {
   }
 
   private buildTransDatetime(transDate: string, transTime?: string) {
-    const dateMatched = /^(\d{4})(\d{2})(\d{2})$/.exec(transDate);
-    if (!dateMatched) {
-      throw new Error(`CMB 交易日期格式无效: ${transDate}`);
+    const result = parseCmbTransactionDatetime(transDate, transTime);
+    if (!result) {
+      throw new Error(
+        `CMB 交易日期时间格式无效: transDate=${transDate} transTime=${transTime ?? '000000'}`,
+      );
     }
-
-    const timeMatched = /^(\d{2})(\d{2})(\d{2})$/.exec(transTime ?? '000000');
-    if (!timeMatched) {
-      throw new Error(`CMB 交易时间格式无效: ${transTime}`);
-    }
-
-    const [, year, month, day] = dateMatched;
-    const [, hour, minute, second] = timeMatched;
-    // 银行返回的是本地交易日期时间；用 Date.UTC 固化存储，避免服务器时区变化影响查询边界。
-    return new Date(
-      Date.UTC(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-        Number(second),
-      ),
-    );
+    return result;
   }
 
   private asRecord(value: unknown): CmbResponseBody {

@@ -8,6 +8,10 @@ import { AppConfig } from '../config/app-config.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { BankTransactionDocument } from './types/bank-records.type';
 import {
+  getCmbLocalDateParts,
+  parseCmbTransactionDatetime,
+} from './cmb-transaction-datetime';
+import {
   BITABLE_FIELD_TYPES,
   BITABLE_FIELDS,
   BITABLE_MONTH_NAMES,
@@ -1144,14 +1148,17 @@ export class BitableSyncService implements OnModuleInit {
       return undefined;
     }
 
-    // 日期是明细核算日；在列表里也用它派生月份和周次。
-    const dateText = this.formatDate(tx.transDatetime);
-    if (dateText) {
-      // 飞书当前表结构使用时间戳写入更稳定。
-      fields[BITABLE_FIELDS.DATE] = dateText;
-      const monthIndex = tx.transDatetime.getUTCMonth();
-      fields[BITABLE_FIELDS.MONTH] = BITABLE_MONTH_NAMES[monthIndex];
-      fields[BITABLE_FIELDS.PERIOD] = this.toPeriodByDate(tx.transDatetime);
+    // 日期、月份和周期统一按银行原始北京时间计算，避免 UTC 转换把日期推到前后一天。
+    const businessDatetime = this.resolveBusinessDatetime(tx, raw);
+    const businessDateParts = businessDatetime
+      ? getCmbLocalDateParts(businessDatetime)
+      : undefined;
+    if (businessDatetime && businessDateParts) {
+      // 飞书日期字段要求写入 13 位毫秒时间戳，同时保留时分秒供同日流水排序。
+      fields[BITABLE_FIELDS.DATE] = businessDatetime.getTime();
+      fields[BITABLE_FIELDS.MONTH] =
+        BITABLE_MONTH_NAMES[businessDateParts.month - 1];
+      fields[BITABLE_FIELDS.PERIOD] = this.toPeriodByDay(businessDateParts.day);
     } else {
       this.logger.warn(
         `交易 ${tx.id} 的 transDatetime 非法，已跳过日期/月份/周期映射：${String(
@@ -1218,8 +1225,29 @@ export class BitableSyncService implements OnModuleInit {
     return { fields };
   }
 
-  private toPeriodByDate(date: Date) {
-    const day = date.getUTCDate();
+  private resolveBusinessDatetime(
+    tx: BankTransactionDocument,
+    raw: Record<string, unknown>,
+  ) {
+    const rawTransDate = this.toText(raw.transDate);
+    const rawTransTime = this.toText(raw.transTime);
+    if (rawTransDate) {
+      const rawDatetime = parseCmbTransactionDatetime(
+        rawTransDate,
+        rawTransTime,
+      );
+      if (rawDatetime) {
+        return rawDatetime;
+      }
+    }
+
+    // 兼容缺少原始日期字段的历史记录；新流水始终优先使用银行原始日期时间。
+    return getCmbLocalDateParts(tx.transDatetime)
+      ? tx.transDatetime
+      : undefined;
+  }
+
+  private toPeriodByDay(day: number) {
     if (day <= 7) {
       return '第一周';
     }
@@ -1233,15 +1261,6 @@ export class BitableSyncService implements OnModuleInit {
       return '第四周';
     }
     return '第五周';
-  }
-
-  private formatDate(date: Date): number | undefined {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return undefined;
-    }
-
-    // 飞书时间字段按13位毫秒时间戳写入。
-    return date.getTime();
   }
 
   private firstNonEmptyText(...values: Array<string | undefined>) {
